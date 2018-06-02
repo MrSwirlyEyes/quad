@@ -13,19 +13,19 @@
 #define RADIO_CHANNEL 21
 #define BAUDRATE 115200
 
-#define COMP_GAIN 0.90
+#define COMP_GAIN 0.95
 
-#define pitch_kp 0.0 //
-#define pitch_kd 0.0 //
+#define pitch_kp 0.5 //
+#define pitch_kd 0.5 //
 #define pitch_ki 0.0 //
 
-#define roll_kp 1.1 //0.85  //.63 // 1.3
-//#define roll_kd 0.0 // 0.0
+#define roll_kp 0.5
+#define roll_kd 0.5 //0.25
 #define roll_ki 0.0 // 0.0
-float roll_kd = 0.0; //0.85
 
-#define yaw_kp 0.0 //
-#define yaw_kd 0.0
+
+#define yaw_kp 0.25 //
+#define yaw_kd 0.1
 #define yaw_ki 0.0 //
 
 #define MTR_TL 3 // GREEN A, CW
@@ -54,7 +54,11 @@ struct rfPacket {
   byte checksum;
 } rfMessage;
 
-byte offset = 32; //27 // constant offset to compensate for motors being uneven
+//byte offset = 32; //27 // constant offset to compensate for motors being uneven
+char offset_BR = -5;
+char offset_BL = 0;
+char offset_TR = -32;
+char offset_TL = 10;
 
 byte checksum=0xDEADBEAF;
 
@@ -73,7 +77,7 @@ float error_pitch; // difference between angle and setpoint
 float derivative_pitch; // reading from gyroscope - degrees/second
 float integral_pitch; // summation of error over time
 float setpoint_pitch; // the desired angle - compared with actual position to determine error
-float control_pitch; // value written to motors (two added, two subtracted), process variable
+float control_pitch = 0; // value written to motors (two added, two subtracted), process variable
 
 float filtered_roll;
 float angle_roll;
@@ -81,16 +85,16 @@ float error_roll;
 float derivative_roll;
 float integral_roll;
 float setpoint_roll;
-float control_roll;
+float control_roll = 0;
 
 float filtered_yaw;
-float angle_yaw;
+float angle_yaw = 0;
 float error_yaw;
 float error_yaw_prev;
 float derivative_yaw;
 float integral_yaw;
 float setpoint_yaw;
-float control_yaw;
+float control_yaw = 0;
 
 
 byte signal_loss_count;
@@ -134,59 +138,57 @@ void setup() {
 }
 
 #define box_size 10
-float box_filter_roll[box_size];
-float box_filter_pitch[box_size];
-float box_filter_yaw[box_size];
+float box_filter_roll[box_size] = {0};
+float box_filter_pitch[box_size] = {0};
+float box_filter_yaw[box_size] = {0};
 
 void loop() {
   dt = abs(millis() - t0) / 1000.0;
   t0 = millis();  
 
-
   imu.read();
   ahrs.getQuadOrientation(&quad);
 
+//  float curr_val_roll=quad.roll_rate;
+//  static float box_sum_roll=0;
+//  static int i=0;
+//
+//  box_filter_roll[i]=curr_val_roll;
+//  box_sum_roll += (curr_val_roll - box_filter_roll[(i+1) % box_size]) / box_size;
+//  // box_sum_roll += cur_val_roll - box_filter_roll[(i+1) % box_size];
+//  // roll_value_used_in_calculations = box_sum_roll / box_size;
+//
+////  quad.roll_rate=box_sum_roll;
+//  filtered_roll = box_sum_roll;
+//
+//
+//  float curr_val_pitch=quad.pitch_rate;
+//  static float box_sum_pitch=0;  
+//
+//  box_filter_pitch[i]=curr_val_pitch;
+//  box_sum_pitch += (curr_val_pitch - box_filter_pitch[(i+1) % box_size]) / box_size;
+//
+////  quad.pitch_rate=box_sum_pitch;
+//  filtered_pitch = box_sum_pitch;
+//
+//
+//  float curr_val_yaw=quad.yaw_rate;
+//  static float box_sum_yaw=0;  
+//
+//  box_filter_yaw[i]=curr_val_yaw;
+//  box_sum_yaw += (curr_val_yaw - box_filter_yaw[(i+1) % box_size]) / box_size;
+//
+////  quad.yaw_rate=box_sum_yaw;
+//  filtered_yaw = box_sum_yaw;
+//
+//  i=(i+1) % box_size;
 
-  float curr_val_roll=quad.roll_rate;
-  static float box_sum_roll=0;
-  static int i=0;
-
-  box_filter_roll[i]=curr_val_roll;
-  box_sum_roll += (curr_val_roll - box_filter_roll[(i+1) % box_size]) / box_size;
-  // box_sum_roll += cur_val_roll - box_filter_roll[(i+1) % box_size];
-  // roll_value_used_in_calculations = box_sum_roll / box_size;
-
-//  quad.roll_rate=box_sum_roll;
-  filtered_roll = box_sum_roll;
+filtered_pitch = quad.pitch_rate;
+filtered_roll = quad.roll_rate;
+filtered_yaw = quad.yaw_rate;
 
 
-  float curr_val_pitch=quad.pitch_rate;
-  static float box_sum_pitch=0;  
-
-  box_filter_pitch[i]=curr_val_pitch;
-  box_sum_pitch += (curr_val_pitch - box_filter_pitch[(i+1) % box_size]) / box_size;
-
-//  quad.pitch_rate=box_sum_pitch;
-  filtered_pitch = box_sum_pitch;
-
-
-  float curr_val_yaw=quad.yaw_rate;
-  static float box_sum_yaw=0;  
-
-  box_filter_yaw[i]=curr_val_yaw;
-  box_sum_yaw += (curr_val_yaw - box_filter_yaw[(i+1) % box_size]) / box_size;
-
-//  quad.yaw_rate=box_sum_yaw;
-  filtered_yaw = box_sum_yaw;
-
-  i=(i+1) % box_size;
-
-
-
-  angle_pitch = (angle_pitch + ((filtered_roll-imu_offset_roll) * dt)) * COMP_GAIN + quad.roll * (1 - COMP_GAIN);
-//  angle_pitch = (angle_pitch + ((quad.roll_rate-imu_offset_roll * dt)) * COMP_GAIN + quad.roll * (1 - COMP_GAIN);
-//  angle_pitch = (angle_pitch + (quad.roll_rate * dt)) * COMP_GAIN + quad.roll * (1 - COMP_GAIN);
-//  angle_pitch = (angle_pitch + (quad.roll_rate * dt)) * COMP_GAIN + (quad.roll - (quad.roll_rate*quad.roll_rate + quad.yaw_rate*quad.yaw_rate)) * (1 - COMP_GAIN);
+  angle_pitch = (angle_pitch + (filtered_roll * dt)) * COMP_GAIN + (quad.roll-imu_offset_roll) * (1 - COMP_GAIN);
 
   error_pitch = (rfMessage.pitch) - (angle_pitch); // - imu_offset_roll);
   integral_pitch += (error_pitch);
@@ -197,10 +199,7 @@ void loop() {
 //  control_pitch = (pitch_kp * error_pitch) + (pitch_kd * quad.roll_rate) + (pitch_ki * (integral_pitch));
   control_pitch = (pitch_kp * error_pitch) + (pitch_kd * filtered_roll) + (pitch_ki * (integral_pitch));
 
-  angle_roll = (angle_roll + ((filtered_pitch-imu_offset_pitch) * dt)) * COMP_GAIN + quad.pitch * (1 - COMP_GAIN);
-//  angle_roll = (angle_roll + ((quad.pitch_rate-imu_offset_pitch) * dt)) * COMP_GAIN + quad.pitch * (1 - COMP_GAIN);
-//  angle_roll = (angle_roll + ((quad.pitch_rate * dt)) * COMP_GAIN + quad.pitch * (1 - COMP_GAIN);
-//  angle_roll = (angle_roll + (quad.pitch_rate * dt)) * COMP_GAIN + (quad.pitch + (quad.roll_rate*quad.pitch_rate + quad.yaw_rate/dt)) * (1 - COMP_GAIN);
+  angle_roll = (angle_roll + (filtered_pitch * dt)) * COMP_GAIN + (quad.pitch-imu_offset_pitch) * (1 - COMP_GAIN);
 
   error_roll = (rfMessage.roll) - (angle_roll); // - imu_offset_pitch);
 //  integral_roll += (roll_ki + error_roll * dt);
@@ -215,7 +214,8 @@ void loop() {
 //  control_roll = constrain((roll_kp * error_roll) + (roll_kd * quad.pitch_rate) + (roll_ki * ((integral_roll + error_roll * dt))),-100,100);
 
 
-  error_yaw = rfMessage.yaw - (filtered_yaw - imu_offset_yaw);  
+  angle_yaw += filtered_yaw - imu_offset_yaw;
+  error_yaw = rfMessage.yaw - (angle_yaw);  
 //  error_yaw = rfMessage.yaw - (quad.yaw_rate - imu_offset_yaw);  
   control_yaw = constrain((yaw_kp * error_yaw) + (yaw_kd * (error_yaw - error_yaw_prev)) + (yaw_ki * ((integral_yaw + error_yaw * dt))),-100,100);
   error_yaw_prev = error_yaw;
@@ -223,7 +223,7 @@ void loop() {
   if (rfAvailable()) {
     rfRead((uint8_t *) & rfMessage, sizeof(rfMessage));
 //    offset=rfMessage.pot_L;
-    roll_kd = (float) rfMessage.pot_L * 0.05;
+//    roll_kd = (float) rfMessage.pot_L * 0.05;
 //    Serial.println(roll_kp);
 //    rfFlush();
 //    roll_kd = rfMessage.pot2_rf*0.01;
@@ -236,10 +236,15 @@ void loop() {
     if (rfMessage.throttle > MIN_MOTOR_SPEED && (rfMessage.checksum == checksum)) {      
       signal_loss_count = 0;
       
-      analogWrite(MTR_TL, constrain((int) (rfMessage.throttle*0.75) + control_pitch - control_roll + control_yaw, 0, MAX_MOTOR_SPEED));
-      analogWrite(MTR_TR, constrain((int) (rfMessage.throttle*0.75-offset) + control_pitch + control_roll - control_yaw, 0, MAX_MOTOR_SPEED));
-      analogWrite(MTR_BL, constrain((int) (rfMessage.throttle*0.75) - control_pitch - control_roll - control_yaw, 0, MAX_MOTOR_SPEED));
-      analogWrite(MTR_BR, constrain((int) (rfMessage.throttle*0.75-offset) - control_pitch + control_roll + control_yaw, 0, MAX_MOTOR_SPEED));
+      analogWrite(MTR_TL, constrain((int) (rfMessage.throttle*0.75 + offset_TL) + control_pitch - control_roll + control_yaw, 0, MAX_MOTOR_SPEED));
+      analogWrite(MTR_TR, constrain((int) (rfMessage.throttle*0.75 + offset_TR) + control_pitch + control_roll - control_yaw, 0, MAX_MOTOR_SPEED));
+      analogWrite(MTR_BL, constrain((int) (rfMessage.throttle*0.75 + offset_BL) - control_pitch - control_roll - control_yaw, 0, MAX_MOTOR_SPEED));
+      analogWrite(MTR_BR, constrain((int) (rfMessage.throttle*0.75 + offset_BR) - control_pitch + control_roll + control_yaw, 0, MAX_MOTOR_SPEED));
+
+//      analogWrite(MTR_TL, constrain((int) (rfMessage.throttle*0.75 + offset_TL), 0, MAX_MOTOR_SPEED));
+//      analogWrite(MTR_TR, constrain((int) (rfMessage.throttle*0.75 + offset_TR), 0, MAX_MOTOR_SPEED));
+//      analogWrite(MTR_BL, constrain((int) (rfMessage.throttle*0.75 + offset_BL), 0, MAX_MOTOR_SPEED));
+//      analogWrite(MTR_BR, constrain((int) (rfMessage.throttle*0.75 + offset_BR), 0, MAX_MOTOR_SPEED));
 
     } else {
       analogWrite(MTR_TR, 0);
@@ -257,7 +262,7 @@ void loop() {
       analogWrite(MTR_BL, 0);
       analogWrite(MTR_BR, 0);      
     }
-  }
+  } // end rf avail
 
 //  led_flash();
 
@@ -293,10 +298,17 @@ void calibrate_imu() {
       imu_offset_yaw += quad.yaw_rate;
       i++;
     }
+    delay(1);
   }
   imu_offset_pitch = imu_offset_pitch / 100.0;
   imu_offset_roll = imu_offset_roll / 100.0;
   imu_offset_yaw = imu_offset_yaw / 100.0;
+
+  #ifdef DEBUG
+    Serial.print("imu_offset_pitch: ");
+    Serial.println(imu_offset_pitch);
+//    print_imu_data();
+  #endif 
 }
 
 void imu_configuration()
