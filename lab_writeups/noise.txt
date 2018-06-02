@@ -1,0 +1,19 @@
+  
+To address noise from a hardware perspective, we took the following steps:
+
+-Looked up the address of CTRL_REG1_G in the Adafruit_LSM9DS1.h file, found it to be 0x10, and wrote to this register a value 0x80 to set the output data rate to 238 Hz. 
+
+-Looked up the address of CTRL_REG7_XL in the Adafruit_LSM9DS1.h file, found it to be 0x21, and wrote to this register a value of 0xA0. In binary, this is 1110 0000, which sets the operation of the accelerometer to high-resolution mode and gives an LPF cutoff of 238/50 = 4.76 Hz. 
+
+The code is shown below:
+//Added for using hardware filter
+  write8(1, 0x10, 0x80);
+  //write8(1, 0x20, 0x80);
+  write8(1, 0x21, 0xC0); 
+
+To address noise from a software perspective, we implemented a Complementary Filter with the following steps:
+
+-Assign the right gimbal (pitch) to control the gain coefficient. 
+-Observe the effect of gain on Complementary Filter output at different throttle values.
+-Conclude that a very large gain (.99) gives the most stable output, set coefficient accordingly. 
+-However, then noted that with motor off, with such emphasis on the gyro data, there is a ~2 second lag on the filtered output 'catching up' to the position already known by the accelerometer. So, adjust the weight of gain to .9 to attempt to give a lower response time.
